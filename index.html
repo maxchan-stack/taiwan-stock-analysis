@@ -642,12 +642,12 @@
 
     async function fetchNews(query, count = 8) {
       const rssUrl = `https://news.google.com/rss/search?q=${encodeURIComponent(query)}&hl=zh-TW&gl=TW&ceid=TW:zh-Hant`;
-      const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}&count=${count}`;
+      const apiUrl = `https://api.rss2json.com/v1/api.json?rss_url=${encodeURIComponent(rssUrl)}`;
       const res = await fetch(apiUrl);
       if (!res.ok) throw new Error('新聞 API 無回應');
       const json = await res.json();
       if (json.status !== 'ok') throw new Error(json.message || 'RSS 錯誤');
-      return json.items || [];
+      return (json.items || []).slice(0, count);
     }
 
     async function renderNewsSection(query, containerId) {
