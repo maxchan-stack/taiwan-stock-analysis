@@ -3727,7 +3727,7 @@
       const statusEl = document.getElementById('syncStatus');
       if (statusEl) statusEl.innerText = '狀態: 雲端備份中...';
       try {
-        await tsDb.collection("portfolios").doc(syncId).set({
+        await tsDb.collection("latest").doc("portfolio_" + syncId).set({
           items: items,
           updatedAt: firebase.firestore.FieldValue.serverTimestamp()
         });
@@ -3747,7 +3747,7 @@
       const statusEl = document.getElementById('syncStatus');
       if (statusEl) statusEl.innerText = '狀態: 正在與雲端同步...';
       try {
-        const doc = await tsDb.collection("portfolios").doc(syncId).get();
+        const doc = await tsDb.collection("latest").doc("portfolio_" + syncId).get();
         if (doc.exists) {
           const cloudData = doc.data();
           if (cloudData && Array.isArray(cloudData.items)) {
