@@ -3727,10 +3727,16 @@
       const statusEl = document.getElementById('syncStatus');
       if (statusEl) statusEl.innerText = '狀態: 雲端備份中...';
       try {
-        await tsDb.collection("latest").doc("portfolio_" + syncId).set({
-          items: items,
-          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${syncId}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify({ items: items })
         });
+        if (!res.ok) throw new Error('雲端更新失敗');
+        const data = await res.json();
+        if (data.status !== 0) throw new Error(data.message || '寫入發生錯誤');
         if (statusEl) {
           const nowStr = new Date().toLocaleTimeString('en-US', { hour12: false });
           statusEl.innerText = `狀態: 已同步至雲端 (識別碼: ${syncId}) @ ${nowStr}`;
@@ -3747,24 +3753,25 @@
       const statusEl = document.getElementById('syncStatus');
       if (statusEl) statusEl.innerText = '狀態: 正在與雲端同步...';
       try {
-        const doc = await tsDb.collection("latest").doc("portfolio_" + syncId).get();
-        if (doc.exists) {
-          const cloudData = doc.data();
-          if (cloudData && Array.isArray(cloudData.items)) {
-            const localItems = getPortfolio();
-            if (JSON.stringify(localItems) !== JSON.stringify(cloudData.items)) {
-              localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(cloudData.items));
-              await renderPortfolio();
-            }
-            if (statusEl) {
-              const nowStr = new Date().toLocaleTimeString('en-US', { hour12: false });
-              statusEl.innerText = `狀態: 已從雲端載入 (識別碼: ${syncId}) @ ${nowStr}`;
-            }
-            if (forceAlert) alert('已成功自雲端下載並載入最新庫存資料！');
+        const res = await fetch(`https://extendsclass.com/api/json-storage/bin/${syncId}`);
+        if (!res.ok) {
+          if (res.status === 404) {
+            throw new Error('雲端找不到此識別碼的存檔，請確認是否輸入正確。');
           }
-        } else {
-          if (statusEl) statusEl.innerText = `狀態: 雲端無此識別碼 (識別碼: ${syncId})`;
-          if (forceAlert) alert('雲端目前尚無此識別碼的存檔，您可先點選「備份至雲端」以建立存檔。');
+          throw new Error('自雲端下載失敗');
+        }
+        const cloudData = await res.json();
+        if (cloudData && Array.isArray(cloudData.items)) {
+          const localItems = getPortfolio();
+          if (JSON.stringify(localItems) !== JSON.stringify(cloudData.items)) {
+            localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(cloudData.items));
+            await renderPortfolio();
+          }
+          if (statusEl) {
+            const nowStr = new Date().toLocaleTimeString('en-US', { hour12: false });
+            statusEl.innerText = `狀態: 已從雲端載入 (識別碼: ${syncId}) @ ${nowStr}`;
+          }
+          if (forceAlert) alert('已成功自雲端下載並載入最新庫存資料！');
         }
       } catch (err) {
         console.error('下載雲端資料失敗:', err);
@@ -4034,13 +4041,42 @@
       }
 
       document.getElementById('btnSaveCloud').onclick = async () => {
-        const syncId = getSyncId();
-        if (!syncId) {
-          alert('請先輸入雲端同步識別碼！');
-          return;
+        let syncId = getSyncId();
+        const statusEl = document.getElementById('syncStatus');
+        if (statusEl) statusEl.innerText = '狀態: 正在備份至雲端...';
+        try {
+          if (!syncId) {
+            // 沒有識別碼，先建立一個新的雲端 Bin
+            const res = await fetch('https://extendsclass.com/api/json-storage/bin', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json'
+              },
+              body: JSON.stringify({ items: getPortfolio() })
+            });
+            if (!res.ok) throw new Error('無法建立雲端儲存空間');
+            const data = await res.json();
+            if (data.id) {
+              syncId = data.id;
+              setSyncId(syncId);
+              const syncInput = document.getElementById('portfolioSyncId');
+              if (syncInput) syncInput.value = syncId;
+              const nowStr = new Date().toLocaleTimeString('en-US', { hour12: false });
+              if (statusEl) statusEl.innerText = `狀態: 已同步至雲端 (識別碼: ${syncId}) @ ${nowStr}`;
+              alert(`已成功為您建立專屬的雲端同步空間！\n請記下您的「雲端同步識別碼」: ${syncId}\n您可以在其他裝置（如手機）輸入此識別碼並下載相同的庫存資料！`);
+            } else {
+              throw new Error('未取得雲端識別碼');
+            }
+          } else {
+            // 已有識別碼，直接 PUT 更新
+            await autoSyncToCloud(getPortfolio());
+            alert('已成功將本機庫存備份至雲端！');
+          }
+        } catch (err) {
+          console.error('備份失敗:', err);
+          if (statusEl) statusEl.innerText = `狀態: 備份失敗 (${err.message})`;
+          alert(`備份失敗: ${err.message}`);
         }
-        await autoSyncToCloud(getPortfolio());
-        alert('已成功將本機庫存備份至雲端！');
       };
 
       document.getElementById('btnLoadCloud').onclick = async () => {
