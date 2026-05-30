@@ -491,6 +491,24 @@
       <div id="portfolioContent" class="hidden space-y-4">
         <!-- Add stock form and summary -->
         <div class="bg-termPanel border border-termBorder rounded-xl p-5 shadow-sm">
+          <!-- Cloud Sync Panel -->
+          <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 mb-4 border-b border-termBorder/60 pb-3">
+            <div class="flex flex-wrap items-center gap-2">
+              <span class="text-[10px] font-mono text-termTextDim font-bold">☁️ 雲端同步識別碼:</span>
+              <input id="portfolioSyncId" type="text" placeholder="自訂識別碼（如: maxchan）"
+                class="bg-termBg text-termText px-2 py-1 rounded border border-termBorder focus:outline-none focus:border-termAccent text-[10px] font-mono w-40">
+              <button id="btnSaveCloud" type="button" class="px-2.5 py-1 bg-termAccent/10 hover:bg-termAccent/20 border border-termAccent/30 text-termAccent rounded text-[10px] font-mono transition">
+                備份至雲端
+              </button>
+              <button id="btnLoadCloud" type="button" class="px-2.5 py-1 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-600 rounded text-[10px] font-mono transition">
+                自雲端下載
+              </button>
+            </div>
+            <div id="syncStatus" class="text-[10px] font-mono text-termTextDim">
+              狀態: 尚未設定同步碼 (僅儲存於本機)
+            </div>
+          </div>
+
           <form id="portfolioForm" class="grid grid-cols-1 sm:grid-cols-4 gap-3 items-end mb-4 border-b border-termBorder/60 pb-4">
             <div>
               <label class="block text-[10px] font-mono text-termTextDim mb-1">股票代號</label>
@@ -3690,12 +3708,80 @@
       });
     }
 
+    // ============================================================
+    // 雲端同步識別碼與自動同步功能
+    // ============================================================
+    const SYNC_ID_KEY = 'portfolio_sync_id';
+    
+    function getSyncId() {
+      return localStorage.getItem(SYNC_ID_KEY) || '';
+    }
+    
+    function setSyncId(id) {
+      localStorage.setItem(SYNC_ID_KEY, id.trim());
+    }
+
+    async function autoSyncToCloud(items) {
+      const syncId = getSyncId();
+      if (!syncId) return;
+      const statusEl = document.getElementById('syncStatus');
+      if (statusEl) statusEl.innerText = '狀態: 雲端備份中...';
+      try {
+        await tsDb.collection("portfolios").doc(syncId).set({
+          items: items,
+          updatedAt: firebase.firestore.FieldValue.serverTimestamp()
+        });
+        if (statusEl) {
+          const nowStr = new Date().toLocaleTimeString('en-US', { hour12: false });
+          statusEl.innerText = `狀態: 已同步至雲端 (識別碼: ${syncId}) @ ${nowStr}`;
+        }
+      } catch (err) {
+        console.error('雲端備份失敗:', err);
+        if (statusEl) statusEl.innerText = `狀態: 備份失敗 (${err.message})`;
+      }
+    }
+
+    async function syncPortfolioFromCloud(forceAlert = false) {
+      const syncId = getSyncId();
+      if (!syncId) return;
+      const statusEl = document.getElementById('syncStatus');
+      if (statusEl) statusEl.innerText = '狀態: 正在與雲端同步...';
+      try {
+        const doc = await tsDb.collection("portfolios").doc(syncId).get();
+        if (doc.exists) {
+          const cloudData = doc.data();
+          if (cloudData && Array.isArray(cloudData.items)) {
+            const localItems = getPortfolio();
+            if (JSON.stringify(localItems) !== JSON.stringify(cloudData.items)) {
+              localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(cloudData.items));
+              await renderPortfolio();
+            }
+            if (statusEl) {
+              const nowStr = new Date().toLocaleTimeString('en-US', { hour12: false });
+              statusEl.innerText = `狀態: 已從雲端載入 (識別碼: ${syncId}) @ ${nowStr}`;
+            }
+            if (forceAlert) alert('已成功自雲端下載並載入最新庫存資料！');
+          }
+        } else {
+          if (statusEl) statusEl.innerText = `狀態: 雲端無此識別碼 (識別碼: ${syncId})`;
+          if (forceAlert) alert('雲端目前尚無此識別碼的存檔，您可先點選「備份至雲端」以建立存檔。');
+        }
+      } catch (err) {
+        console.error('下載雲端資料失敗:', err);
+        if (statusEl) statusEl.innerText = `狀態: 同步失敗 (${err.message})`;
+        if (forceAlert) alert(`下載失敗: ${err.message}`);
+      }
+    }
+
     const PORTFOLIO_KEY = 'taiwan_stock_portfolio';
     const getPortfolio = () => {
       try { return JSON.parse(localStorage.getItem(PORTFOLIO_KEY)) || []; }
       catch { return []; }
     };
-    const savePortfolio = (arr) => localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(arr));
+    const savePortfolio = (arr) => {
+      localStorage.setItem(PORTFOLIO_KEY, JSON.stringify(arr));
+      autoSyncToCloud(arr);
+    };
 
     function addPortfolioItem(code, entryDate, entryPrice, qty) {
       const items = getPortfolio();
@@ -3923,6 +4009,48 @@
 
       // 初始化庫存股模組與預設日期
       document.getElementById('portDate').value = new Date().toISOString().slice(0, 10);
+
+      // 初始化雲端同步識別碼與綁定事件
+      const syncInput = document.getElementById('portfolioSyncId');
+      const statusEl = document.getElementById('syncStatus');
+      const savedSyncId = getSyncId();
+      if (syncInput) {
+        syncInput.value = savedSyncId;
+        if (savedSyncId) {
+          statusEl.innerText = `狀態: 已設定識別碼 (${savedSyncId})，載入中...`;
+          // 首次載入自動從雲端載入
+          syncPortfolioFromCloud();
+        }
+        syncInput.addEventListener('change', (e) => {
+          const val = e.target.value.trim();
+          setSyncId(val);
+          if (val) {
+            statusEl.innerText = `狀態: 已更新識別碼 (${val})，自動同步中...`;
+            syncPortfolioFromCloud();
+          } else {
+            statusEl.innerText = '狀態: 尚未設定同步碼 (僅儲存於本機)';
+          }
+        });
+      }
+
+      document.getElementById('btnSaveCloud').onclick = async () => {
+        const syncId = getSyncId();
+        if (!syncId) {
+          alert('請先輸入雲端同步識別碼！');
+          return;
+        }
+        await autoSyncToCloud(getPortfolio());
+        alert('已成功將本機庫存備份至雲端！');
+      };
+
+      document.getElementById('btnLoadCloud').onclick = async () => {
+        const syncId = getSyncId();
+        if (!syncId) {
+          alert('請先輸入雲端同步識別碼！');
+          return;
+        }
+        await syncPortfolioFromCloud(true);
+      };
       
       let _portfolioInitialized = false;
       document.getElementById('togglePortfolioView').onclick = async () => {
@@ -3932,6 +4060,10 @@
           content.classList.remove('hidden');
           btn.innerText = '[ 收合庫存 ]';
           if (!_portfolioInitialized) {
+            // 如果已設定識別碼，展開時強制從雲端抓取一次最新狀態
+            if (getSyncId()) {
+              await syncPortfolioFromCloud();
+            }
             await renderPortfolio();
             _portfolioInitialized = true;
           }
