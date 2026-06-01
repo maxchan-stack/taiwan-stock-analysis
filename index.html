@@ -576,10 +576,16 @@
                     <h3 class="text-xs font-bold text-termText font-mono flex items-center gap-1.5">
                       <span>[績效]</span> 投資報酬日曆
                     </h3>
-                    <div class="flex items-center gap-2">
-                      <select id="calendarMonthSelect" class="bg-white border border-termBorder text-[10px] font-mono rounded px-2 py-1 text-termText focus:outline-none focus:border-termAccent">
+                    <div class="flex items-center gap-1">
+                      <button id="btnPrevMonth" type="button" class="px-2 py-0.5 bg-termPanel border border-termBorder text-termTextDim hover:text-termAccent hover:border-termAccent rounded text-[10px] font-mono transition">
+                        ◀
+                      </button>
+                      <select id="calendarMonthSelect" class="bg-white border border-termBorder text-[10px] font-mono rounded px-2 py-1 text-termText focus:outline-none focus:border-termAccent font-mono">
                         <!-- JS 動態插入月份 -->
                       </select>
+                      <button id="btnNextMonth" type="button" class="px-2 py-0.5 bg-termPanel border border-termBorder text-termTextDim hover:text-termAccent hover:border-termAccent rounded text-[10px] font-mono transition">
+                        ▶
+                      </button>
                     </div>
                   </div>
 
@@ -3384,7 +3390,7 @@
         allDates.push(...p.prices.map(x => x.date));
       }
       allDates = Array.from(new Set(allDates)).sort((a, b) => new Date(a.replace(/-/g, '/')) - new Date(b.replace(/-/g, '/')));
-      if (allDates.length > 60) allDates = allDates.slice(-60);
+      if (allDates.length > 260) allDates = allDates.slice(-260);
       if (allDates.length === 0) return;
 
       _dailyPortfolioPerf = [];
@@ -3521,6 +3527,14 @@
 
       // 5. 月份選單初始化
       const monthsSet = new Set();
+      
+      // 預設加入最近 12 個月，確保選單有足夠月份可切換觀看
+      const now = new Date();
+      for (let i = 11; i >= 0; i--) {
+        const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+        monthsSet.add(d.toISOString().slice(0, 7));
+      }
+      
       _dailyPortfolioPerf.forEach(x => monthsSet.add(x.date.slice(0, 7)));
       let months = Array.from(monthsSet).sort();
       if (months.length === 0) months = [new Date().toISOString().slice(0, 7)];
@@ -3529,6 +3543,23 @@
       select.innerHTML = months.map(m => `<option value="${m}">${m.replace('-', ' 年 ')} 月</option>`).join('');
       select.value = months[months.length - 1];
       select.onchange = () => renderReturnCalendar(select.value);
+
+      // 綁定上個月與下個月切換按鈕
+      document.getElementById('btnPrevMonth').onclick = () => {
+        const idx = months.indexOf(select.value);
+        if (idx > 0) {
+          select.value = months[idx - 1];
+          renderReturnCalendar(select.value);
+        }
+      };
+
+      document.getElementById('btnNextMonth').onclick = () => {
+        const idx = months.indexOf(select.value);
+        if (idx < months.length - 1) {
+          select.value = months[idx + 1];
+          renderReturnCalendar(select.value);
+        }
+      };
 
       renderReturnCalendar(select.value);
     }
